@@ -9,9 +9,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 初始化 Replicate 客户端
+// 初始化 Replicate
 const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_KEY, // 切记不要在代码里写死 token
+  auth: process.env.REPLICATE_API_KEY,
 });
 
 // 健康检查
@@ -19,7 +19,7 @@ app.get("/", (req, res) => {
   res.send("✅ AI Avatar backend is running");
 });
 
-// 生成头像接口
+// AI 头像生成接口
 app.post("/generate", async (req, res) => {
   try {
     const { prompt } = req.body;
@@ -27,28 +27,40 @@ app.post("/generate", async (req, res) => {
       return res.status(400).json({ error: "Missing prompt" });
     }
 
-    console.log("🧠 开始生成 Avatar，prompt:", prompt);
+    console.log("🧠 开始生成 Avatar:", prompt);
 
-    // 调用 black‑forest‑labs/flux‑1.1‑pro 模型
-    const input = {
-      prompt,
-      prompt_upsampling: true, // 可按模型文档需要设置额外参数
-    };
+    // 调用 Replicate 模型（Black Forest Labs: FLUX 1.1 PRO）
+    const output = await replicate.run(
+      "black-forest-labs/flux-1.1-pro",
+      {
+        input: {
+          // 这里就是你的提示语，可以自定义
+          prompt,
+          guidance: 3,
+          num_inference_steps: 28,
+        },
+      }
+    );
 
-    const output = await replicate.run("black-forest-labs/flux-1.1-pro", {
-      input,
-    });
+    console.log("✅ 生成结果：", output);
 
-    console.log("✅ 生成成功:", output);
+    // 如果返回的是数组（多数情况是图片URL数组）
+    if (Array.isArray(output) && output.length > 0) {
+      return res.json({ image: output[0] });
+    }
 
-    // 返回的 output 通常是一个图片 URL 数组
-    res.json({ image: Array.isArray(output) ? output[0] : output });
+    // 如果是字符串，直接返回
+    if (typeof output === "string") {
+      return res.json({ image: output });
+    }
+
+    // 如果是对象或可读流
+    return res.json({ result: output });
   } catch (error) {
-    console.error("🔥 异常:", error);
-    res.status(500).json({
-      error: "Generation failed",
-      details: error.message,
-    });
+    console.error("❌ 生成出错:", error);
+    res
+      .status(500)
+      .json({ error: "Generation failed", details: error.message });
   }
 });
 
