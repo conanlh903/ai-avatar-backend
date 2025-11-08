@@ -22,7 +22,9 @@ app.post("/generate", async (req, res) => {
   }
 
   try {
-    // 调用 Replicate 创建预测任务
+    console.log("🧠 发送请求到 Replicate，prompt:", prompt);
+
+    // 创建生成任务
     const createResp = await fetch("https://api.replicate.com/v1/predictions", {
       method: "POST",
       headers: {
@@ -30,46 +32,53 @@ app.post("/generate", async (req, res) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        // 如果你想用 flux 模型：
         model: "black-forest-labs/flux-1.1-pro",
         input: { prompt },
       }),
     });
 
     const prediction = await createResp.json();
-
-    // 检查是否报错
-    if (prediction.error) {
-      return res.status(500).json({ error: prediction.error });
+    if (!createResp.ok) {
+      console.error("❌ Replicate returned error:", prediction);
+      return res.status(500).json({
+        error: "Failed to create prediction",
+        details: prediction,
+      });
     }
 
-    // 轮询获取结果（Replicate 生成有延迟）
+    // 轮询获取结果
     let status = prediction.status;
     let result = null;
 
     while (status !== "succeeded" && status !== "failed") {
       await new Promise((r) => setTimeout(r, 2000));
-      const getResp = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
-        headers: { "Authorization": `Token ${process.env.REPLICATE_API_KEY}` },
-      });
+      const getResp = await fetch(
+        `https://api.replicate.com/v1/predictions/${prediction.id}`,
+        {
+          headers: { Authorization: `Token ${process.env.REPLICATE_API_KEY}` },
+        }
+      );
       const updated = await getResp.json();
       status = updated.status;
       if (status === "succeeded") result = updated.output;
     }
 
     if (status === "succeeded" && result && result.length > 0) {
+      console.log("✅ 生成成功:", result[0]);
       res.json({ image: result[0] });
     } else {
+      console.error("⚠️ 生成失败或无结果:", prediction);
       res.status(500).json({
         error: "Generation failed or no output returned",
         details: prediction,
       });
     }
   } catch (error) {
-    console.error(error);
+    console.error("🔥 异常:", error);
     res.status(500).json({ error: "Generation failed", details: error.message });
   }
 });
 
-// 启动服务器
-app.listen(3000, () => console.log("🚀 API Server running on port 3000"));
+// ⚙️ 启动服务器（Render 要求使用动态端口）
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 API Server running on port ${PORT}`));
