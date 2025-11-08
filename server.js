@@ -11,7 +11,7 @@ app.use(express.json());
 
 // 初始化 Replicate
 const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN, // 确认 Render 环境变量名对应
+  auth: process.env.REPLICATE_API_TOKEN, // 确认 Render 环境变量设置一致
 });
 
 // 健康检查
@@ -23,33 +23,39 @@ app.get("/", (_, res) => {
 app.post("/generate", async (req, res) => {
   try {
     const prompt = req.body.prompt || "a cyberpunk portrait of a young man";
-
     console.log("🧠 开始生成 Avatar，prompt:", prompt);
 
+    // 调用模型
     const output = await replicate.run(
       "black-forest-labs/flux-1.1-pro",
       { input: { prompt } }
     );
 
-    // 把输出的 ReadableStream 全部读取为文本或数组
+    // 输出结果通常是数组或可迭代结果
     let result;
-    if (output && typeof output.pipe === "function") {
+
+    // 当返回是可迭代的流
+    if (Symbol.asyncIterator in Object(output)) {
       const chunks = [];
       for await (const chunk of output) {
         chunks.push(chunk);
       }
-      result = Buffer.concat(chunks).toString("utf8");
-      console.log("✅ 生成的文本结果:", result);
+      result = chunks.join("");
     } else {
       result = output;
-      console.log("✅ 生成的结果:", result);
     }
 
-    // 如果结果是数组，取第一项；如果是字符串，直接返回
-    const imageUrl =
-      Array.isArray(result) ? result[0] :
-      typeof result === "string" ? result :
-      null;
+    console.log("✅ 生成的结果:", result);
+
+    // 从结果中提取图片URL
+    let imageUrl = null;
+    if (Array.isArray(result)) {
+      imageUrl = result[0];
+    } else if (typeof result === "string" && result.startsWith("http")) {
+      imageUrl = result;
+    } else if (result?.output && Array.isArray(result.output)) {
+      imageUrl = result.output[0];
+    }
 
     res.json({ image: imageUrl ?? result });
   } catch (error) {
@@ -58,6 +64,6 @@ app.post("/generate", async (req, res) => {
   }
 });
 
-// Render 要求动态端口
+// 动态端口（Render要求）
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 API Server running on port ${PORT}`));
