@@ -21,63 +21,63 @@ app.post("/generate", async (req, res) => {
     const prompt = req.body.prompt || "anime style portrait of a young man";
     console.log("🧠 开始生成头像: ", prompt);
 
+    // 运行 Replicate 模型
     const output = await replicate.run(
       "black-forest-labs/flux-1.1-pro",
-      { input: { prompt } }
+      { 
+        input: { 
+          prompt: prompt,
+          aspect_ratio: "1:1",
+          output_format: "jpg",
+          output_quality: 90
+        } 
+      }
     );
 
+    console.log("📦 API返回类型:", typeof output);
+    console.log("📦 API返回内容:", output);
+
     let imageUrl = null;
-    let base64Image = null;
 
-    // 如果返回是流或迭代器，读取流内容为字符串
-    if (output && (typeof output[Symbol.asyncIterator] === "function")) {
-      let chunks = "";
-      for await (const chunk of output) {
-        chunks += chunk.toString();
-      }
-      // 尝试从文本中提取 URL 或 base64
-      const urlMatch = chunks.match(/https:\/\/replicate\.delivery\/[^\s"]+/);
-      const base64Match = chunks.match(/data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/);
-      if (urlMatch) imageUrl = urlMatch[0];
-      else if (base64Match) imageUrl = base64Match[0];
-    } else if (Array.isArray(output) && output.length > 0) {
-      if (typeof output[0] === "string" && output[0].startsWith("http")) {
-        imageUrl = output[0];
-      } else if (output[0].url) {
-        imageUrl = output[0].url;
-      } else if (output[0].base64) {
-        base64Image = output[0].base64;
-      }
-    } else if (typeof output === "string" && output.startsWith("http")) {
+    // FLUX 1.1 Pro 返回的是一个 URL 字符串
+    if (typeof output === "string") {
       imageUrl = output;
+    } 
+    // 如果是数组，取第一个元素
+    else if (Array.isArray(output) && output.length > 0) {
+      imageUrl = output[0];
+    }
+    // 如果是对象，尝试获取 url 属性
+    else if (output && typeof output === "object") {
+      imageUrl = output.url || output[0];
     }
 
-    if (!imageUrl && base64Image) {
-      imageUrl = `data:image/png;base64,${base64Image}`;
-    }
+    console.log("🖼️ 图片URL:", imageUrl);
 
     if (!imageUrl) {
-      return res.status(500).send("❌ 没有生成有效的图片");
+      console.error("❌ 无法解析图片URL，返回数据:", JSON.stringify(output));
+      return res.status(500).json({ 
+        error: "没有生成有效的图片",
+        debug: output 
+      });
     }
 
-    // 返回一个可以直接在浏览器查看的 HTML 页面
-    const html = `
-      <!DOCTYPE html>
-      <html lang="zh">
-        <head><meta charset="UTF-8"><title>生成的头像</title></head>
-        <body style="text-align:center; background:#111; color:white;">
-          <h2>生成结果</h2>
-          <img src="${imageUrl}" style="max-width:90%; border:5px solid white;">
-        </body>
-      </html>`;
-    res.send(html);
+    // 返回 JSON 格式，而不是 HTML
+    res.json({
+      success: true,
+      imageUrl: imageUrl,
+      prompt: prompt
+    });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).send(`❌ 生成失败: ${error.message}`);
+    console.error("❌ 生成失败:", error);
+    res.status(500).json({ 
+      error: error.message,
+      stack: error.stack 
+    });
   }
 });
 
-// Render 要求动态端口
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
   console.log(`🚀 API Server running on port ${PORT}`)
