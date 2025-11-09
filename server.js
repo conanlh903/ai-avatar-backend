@@ -35,22 +35,35 @@ app.post("/generate", async (req, res) => {
     );
 
     console.log("📦 API返回类型:", typeof output);
-    console.log("📦 API返回内容:", output);
 
     let imageUrl = null;
 
-    // 处理 ReadableStream
+    // 处理 ReadableStream - 收集二进制数据
     if (output && typeof output[Symbol.asyncIterator] === 'function') {
-      console.log("🔄 检测到流式输出，开始读取...");
+      console.log("🔄 检测到流式输出，开始读取二进制数据...");
       const chunks = [];
+      
       for await (const chunk of output) {
+        // chunk 是 Uint8Array，直接收集
         chunks.push(chunk);
       }
-      // 合并所有块，通常第一个就是 URL
-      imageUrl = chunks[0];
-      console.log("🖼️ 从流中提取的URL:", imageUrl);
+      
+      // 合并所有 Uint8Array
+      const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+      const mergedArray = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        mergedArray.set(chunk, offset);
+        offset += chunk.length;
+      }
+      
+      // 转换为 base64
+      const base64 = Buffer.from(mergedArray).toString('base64');
+      imageUrl = `data:image/jpeg;base64,${base64}`;
+      
+      console.log("✅ 成功转换为 base64，长度:", base64.length);
     }
-    // 如果是字符串
+    // 如果是字符串 URL
     else if (typeof output === "string") {
       imageUrl = output;
     } 
@@ -58,18 +71,13 @@ app.post("/generate", async (req, res) => {
     else if (Array.isArray(output) && output.length > 0) {
       imageUrl = output[0];
     }
-    // 如果是对象
-    else if (output && typeof output === "object") {
-      imageUrl = output.url || output[0];
-    }
 
-    console.log("✅ 最终图片URL:", imageUrl);
+    console.log("✅ 最终图片URL类型:", imageUrl ? imageUrl.substring(0, 50) + '...' : 'null');
 
     if (!imageUrl) {
-      console.error("❌ 无法解析图片URL");
+      console.error("❌ 无法解析图片");
       return res.status(500).json({ 
-        error: "没有生成有效的图片",
-        debug: String(output)
+        error: "没有生成有效的图片"
       });
     }
 
