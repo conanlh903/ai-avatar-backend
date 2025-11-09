@@ -3,7 +3,6 @@ import cors from "cors";
 import dotenv from "dotenv";
 import Replicate from "replicate";
 
-// 读取环境变量
 dotenv.config();
 
 const app = express();
@@ -15,93 +14,79 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_KEY,
 });
 
-// 健康检查
+// 页面访问根路径
 app.get("/", (req, res) => {
-  res.send("🚀 AI Avatar backend is running");
+  res.send("🚀 AI Avatar Backend is running!");
 });
 
-// 生成图片接口
+// 生成并返回 HTML 显示图片
 app.post("/generate", async (req, res) => {
   try {
-    const { prompt } = req.body;
-    if (!prompt) {
-      return res.status(400).json({ error: "Prompt is required" });
-    }
+    const prompt = req.body.prompt || "anime style portrait of a young man";
 
-    console.log("🟢 收到生成请求 Prompt:", prompt);
+    console.log("🧠 开始生成头像: ", prompt);
 
-    // 调用模型
+    // 调用 Replicate 模型，这里用 flux-1.1-pro 演示
     const output = await replicate.run(
       "black-forest-labs/flux-1.1-pro",
-      { input: { prompt } }
+      {
+        input: {
+          prompt: prompt
+        }
+      }
     );
 
-    console.log("🟢 typeof output:", typeof output);
-    console.log("🟢 Array.isArray(output):", Array.isArray(output));
-    console.log("🟢 constructor:", output?.constructor?.name);
-    console.log("🟢 原始输出内容:", output);
+    console.log("✅ 原始输出: ", output);
 
     let imageUrl = null;
-    let base64Data = null;
+    let base64Image = null;
 
-    // 如果返回的是数组，并且数组元素是字符串或 URL
     if (Array.isArray(output) && output.length > 0) {
+      // 有可能直接是 URL
       if (typeof output[0] === "string" && output[0].startsWith("http")) {
         imageUrl = output[0];
       }
-    }
-
-    // 如果直接是字符串 URL
-    if (typeof output === "string" && output.startsWith("http")) {
-      imageUrl = output;
-    }
-
-    // 如果是对象里有 URL
-    if (typeof output === "object" && output !== null) {
-      const urlField = findUrlInObject(output);
-      if (urlField) {
-        imageUrl = urlField;
+      // 有可能是对象内的 URL
+      else if (output[0].url) {
+        imageUrl = output[0].url;
+      }
+      // 有可能是对象内的 base64
+      else if (output[0].base64) {
+        base64Image = output[0].base64;
       }
     }
 
-    // 如果是 ReadableStream 或 Buffer
-    if (output && typeof output.getReader === "function") {
-      const reader = output.getReader();
-      const chunks = [];
-      let done, value;
-      while (({ done, value } = await reader.read()) && !done) {
-        chunks.push(value);
-      }
-      const buffer = Buffer.concat(chunks);
-      base64Data = buffer.toString("base64");
-    } else if (Buffer.isBuffer(output)) {
-      base64Data = output.toString("base64");
+    // 如果没有 URL，但有 Base64
+    if (!imageUrl && base64Image) {
+      // 拼接成可显示的 img src
+      imageUrl = `data:image/png;base64,${base64Image}`;
     }
 
-    res.json({
-      prompt,
-      image: imageUrl || null,
-      base64: base64Data || null,
-    });
+    if (!imageUrl) {
+      return res.status(500).send("❌ 没有生成有效的图片");
+    }
+
+    // 返回 HTML 页面，直接显示图片
+    const html = `
+      <!DOCTYPE html>
+      <html lang="zh">
+        <head>
+          <meta charset="UTF-8">
+          <title>生成的头像</title>
+        </head>
+        <body style="text-align:center; background-color:#111; color:white;">
+          <h1>生成结果</h1>
+          <img src="${imageUrl}" style="max-width:90%; height:auto; border:5px solid white;">
+        </body>
+      </html>
+    `;
+    res.send(html);
+
   } catch (error) {
-    console.error("❌ 生成失败:", error);
-    res.status(500).json({ error: "Generation failed", details: error.message });
+    console.error(error);
+    res.status(500).send(`❌ 生成失败: ${error.message}`);
   }
 });
-
-// 辅助函数：递归找 URL
-function findUrlInObject(obj) {
-  for (const key in obj) {
-    const value = obj[key];
-    if (typeof value === "string" && value.startsWith("http")) {
-      return value;
-    } else if (typeof value === "object" && value !== null) {
-      const found = findUrlInObject(value);
-      if (found) return found;
-    }
-  }
-  return null;
-}
 
 // Render 要求动态端口
 const PORT = process.env.PORT || 3000;
