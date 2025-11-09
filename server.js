@@ -39,30 +39,41 @@ app.post("/generate", async (req, res) => {
 
     let imageUrl = null;
 
-    // FLUX 1.1 Pro 返回的是一个 URL 字符串
-    if (typeof output === "string") {
+    // 处理 ReadableStream
+    if (output && typeof output[Symbol.asyncIterator] === 'function') {
+      console.log("🔄 检测到流式输出，开始读取...");
+      const chunks = [];
+      for await (const chunk of output) {
+        chunks.push(chunk);
+      }
+      // 合并所有块，通常第一个就是 URL
+      imageUrl = chunks[0];
+      console.log("🖼️ 从流中提取的URL:", imageUrl);
+    }
+    // 如果是字符串
+    else if (typeof output === "string") {
       imageUrl = output;
     } 
-    // 如果是数组，取第一个元素
+    // 如果是数组
     else if (Array.isArray(output) && output.length > 0) {
       imageUrl = output[0];
     }
-    // 如果是对象，尝试获取 url 属性
+    // 如果是对象
     else if (output && typeof output === "object") {
       imageUrl = output.url || output[0];
     }
 
-    console.log("🖼️ 图片URL:", imageUrl);
+    console.log("✅ 最终图片URL:", imageUrl);
 
     if (!imageUrl) {
-      console.error("❌ 无法解析图片URL，返回数据:", JSON.stringify(output));
+      console.error("❌ 无法解析图片URL");
       return res.status(500).json({ 
         error: "没有生成有效的图片",
-        debug: output 
+        debug: String(output)
       });
     }
 
-    // 返回 JSON 格式，而不是 HTML
+    // 返回 JSON 格式
     res.json({
       success: true,
       imageUrl: imageUrl,
